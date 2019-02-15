@@ -287,21 +287,13 @@ JL_DLLEXPORT jl_method_instance_t *jl_new_method_instance_uninit(void)
     jl_method_instance_t *li =
         (jl_method_instance_t*)jl_gc_alloc(ptls, sizeof(jl_method_instance_t),
                                            jl_method_instance_type);
-    li->inferred = NULL;
-    li->inferred_const = NULL;
-    li->rettype = (jl_value_t*)jl_any_type;
-    li->sparam_vals = jl_emptysvec;
-    li->backedges = NULL;
-    li->invoke = jl_fptr_trampoline;
-    li->specptr.fptr = NULL;
-    li->compile_traced = 0;
-    li->functionObjectsDecls.functionObject = NULL;
-    li->functionObjectsDecls.specFunctionObject = NULL;
-    li->specTypes = NULL;
-    li->inInference = 0;
     li->def.value = NULL;
-    li->min_world = 0;
-    li->max_world = 0;
+    li->specTypes = NULL;
+    li->sparam_vals = jl_emptysvec;
+    li->uninferred = NULL;
+    li->backedges = NULL;
+    li->cache = NULL;
+    li->inInference = 0;
     return li;
 }
 
@@ -322,8 +314,8 @@ JL_DLLEXPORT jl_code_info_t *jl_new_code_info_uninit(void)
     src->slottypes = jl_nothing;
     src->parent = (jl_method_instance_t*)jl_nothing;
     src->rettype = (jl_value_t*)jl_any_type;
-    src->min_world = 0;
-    src->max_world = 0;
+    src->min_world = 1;
+    src->max_world = ~(size_t)0;
     src->inferred = 0;
     src->inlineable = 0;
     src->propagate_inbounds = 0;
@@ -404,7 +396,7 @@ JL_DLLEXPORT jl_code_info_t *jl_code_for_staged(jl_method_instance_t *linfo)
     JL_TRY {
         ptls->in_pure_callback = 1;
         // and the right world
-        ptls->world_age = def->min_world;
+        ptls->world_age = def->primary_world;
 
         // invoke code generator
         jl_tupletype_t *ttdt = (jl_tupletype_t*)jl_unwrap_unionall(tt);
@@ -459,8 +451,6 @@ jl_method_instance_t *jl_get_specialized(jl_method_t *m, jl_value_t *types, jl_s
     new_linfo->def.method = m;
     new_linfo->specTypes = types;
     new_linfo->sparam_vals = sp;
-    new_linfo->min_world = m->min_world;
-    new_linfo->max_world = m->max_world;
     return new_linfo;
 }
 
@@ -595,9 +585,7 @@ JL_DLLEXPORT jl_method_t *jl_new_method_uninit(jl_module_t *module)
     m->invokes = NULL;
     m->isva = 0;
     m->nargs = 0;
-    m->traced = 0;
-    m->min_world = 1;
-    m->max_world = ~(size_t)0;
+    m->primary_world = 1;
     JL_MUTEX_INIT(&m->writelock);
     return m;
 }
@@ -630,8 +618,7 @@ static jl_method_t *jl_new_method(
     }
 
     JL_GC_POP();
-    m->min_world = ++jl_world_counter;
-    m->max_world = ~(size_t)0;
+    m->primary_world = ++jl_world_counter;
     return m;
 }
 
